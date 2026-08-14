@@ -1,0 +1,475 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&display=swap');
+
+/* Global reset so the login page always fills the screen with no scroll */
+:global(html),
+:global(body),
+:global(#root) {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Full-viewport split layout */
+.loginContainer {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    align-items: stretch;
+    background: #fff;
+    overflow: hidden;
+}
+
+/* Left panel: campus photo with a smooth, curvy torn/blob edge */
+.bgPanel {
+    position: relative;
+    flex: 0 0 58%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M0,0 L70,0 C97,15 90,80 45,100 L0,100 Z' fill='black'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M0,0 L70,0 C97,15 90,80 45,100 L0,100 Z' fill='black'/%3E%3C/svg%3E");
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+}
+
+/* soft feather along the torn edge */
+.bgPanel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    box-shadow: inset -40px 0 60px -30px rgba(255, 255, 255, 0.6);
+    pointer-events: none;
+}
+
+@media (max-width: 860px) {
+    .bgPanel {
+        display: none;
+    }
+}
+
+/* Right panel: plain white, holds the form */
+.formPanel {
+    flex: 1;
+    display: flex;
+    background: #fff;
+    padding: 24px 40px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    height: 100%;
+    min-height: 0;
+    scrollbar-width: none;      /* Firefox */
+    -ms-overflow-style: none;   /* old Edge / IE */
+}
+
+/* Chrome, Safari, and Chromium-based Edge use this pseudo-element instead
+   of the scrollbar-width property above */
+.formPanel::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+/* ===== Slide switcher: hosts Login + Register side by side ===== */
+/* Height is set inline via JS to match only the currently active card (see
+   Login.jsx) — a flex row otherwise always sizes to its tallest child, which
+   left the shorter card floating above empty space. overflow: hidden clips
+   the off-stage card horizontally (for the slide) and vertically (so its
+   extra height never leaks into the layout); formPanel's own overflow-y:auto
+   is the fallback if the active card alone is ever taller than the screen. */
+.authSwitcher {
+    width: 100%;
+    max-width: 460px;
+    overflow: hidden;
+    position: relative;
+    margin: auto;
+    flex-shrink: 0;
+    transition: height 0.4s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.authTrack {
+    display: flex;
+    width: 200%;
+    transition: transform 0.5s cubic-bezier(0.65, 0, 0.35, 1);
+    align-items: flex-start;
+}
+
+.authTrack.toRegister {
+    transform: translateX(-50%);
+}
+
+.loginCard,
+.registerCard {
+    flex: 0 0 50%;
+    max-width: 50%;
+    width: 50%;
+    box-sizing: border-box;
+    text-align: left;
+    padding: 0 2px;
+}
+
+/* Brand row: logo on the left, college name filling the rest of the width */
+.brand {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+/* CCET emblem image (replaces the old text badge) */
+.badge {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    user-select: none;
+}
+
+/* College name, styled as a real heading, stretching to fill the card width */
+.brandName {
+    flex: 1 1 0;
+    width: 100%;
+    font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+    font-size: 23px;
+    font-weight: 900;
+    line-height: 1.15;
+    color: #0f172a;
+    letter-spacing: -0.2px;
+    text-align: left;
+}
+
+/* Header text */
+.header {
+    text-align: center;
+    margin-bottom: 18px;
+}
+
+.title {
+    font-family: var(--heading, inherit);
+    font-size: 23px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 4px;
+    letter-spacing: -0.4px;
+}
+
+.subtitle {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0;
+}
+
+/* Form layout */
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* Two-fields-per-row layout (Name + Roll No, Year + Branch, Email + Phone, etc.) */
+.row {
+    display: flex;
+    gap: 14px;
+}
+
+.row > .inputGroup {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.inputGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.label {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #334155;
+}
+
+.fieldWrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+/* Underline-style input, no boxes */
+.input {
+    font-family: var(--sans, inherit);
+    font-size: 15px;
+    padding: 7px 28px 8px 2px;
+    border: none;
+    border-bottom: 1.5px solid #cbd5e1;
+    border-radius: 0;
+    background: transparent;
+    color: #0f172a;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+}
+
+/* Underline-style select, matches the input treatment */
+.select {
+    font-family: var(--sans, inherit);
+    font-size: 15px;
+    padding: 7px 24px 8px 2px;
+    border: none;
+    border-bottom: 1.5px solid #cbd5e1;
+    border-radius: 0;
+    background: transparent;
+    color: #0f172a;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+}
+
+.select:invalid {
+    color: #94a3b8;
+}
+
+.select:focus {
+    border-bottom-color: #0f172a;
+}
+
+.input::placeholder {
+    color: #94a3b8;
+}
+
+.input:focus {
+    border-bottom-color: #0f172a;
+}
+
+.inputError {
+    border-bottom-color: #ef4444 !important;
+    color: #ef4444 !important;
+}
+
+.inputError::placeholder {
+    color: #ef4444;
+    opacity: 0.85;
+}
+
+/* Right-side icon inside the field (email icon) */
+.fieldIcon {
+    position: absolute;
+    right: 4px;
+    display: flex;
+    align-items: center;
+    color: #94a3b8;
+    pointer-events: none;
+}
+
+/* Eye toggle button (password field) */
+.eyeBtn {
+    position: absolute;
+    right: 2px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    color: #94a3b8;
+    transition: color 0.2s;
+}
+
+.eyeBtn:hover {
+    color: #0f172a;
+}
+
+/* Options row */
+.options {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+}
+
+.remember {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #334155;
+    cursor: pointer;
+    user-select: none;
+}
+
+.checkbox {
+    width: 15px;
+    height: 15px;
+    accent-color: #0f172a;
+    cursor: pointer;
+}
+
+.link {
+    color: #0f172a;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 13px;
+    transition: opacity 0.2s;
+}
+
+.link:hover {
+    opacity: 0.7;
+    text-decoration: underline;
+}
+
+/* Submit button */
+.submitBtn {
+    font-family: var(--sans, inherit);
+    font-size: 15.5px;
+    font-weight: 600;
+    color: #fff;
+    background: #0f172a;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    transition: transform 0.15s, box-shadow 0.2s, opacity 0.2s;
+}
+
+.submitBtn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
+}
+
+.submitBtn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.submitBtn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+/* Secondary (ghost) button used to switch between Login / Register */
+.switchBtn {
+    font-family: var(--sans, inherit);
+    font-size: 14px;
+    font-weight: 600;
+    color: #0f172a;
+    background: #fff;
+    border: 1.5px solid #0f172a;
+    border-radius: 10px;
+    padding: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 42px;
+    transition: transform 0.15s, background 0.2s, color 0.2s;
+}
+
+.switchBtn:hover {
+    background: #0f172a;
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.switchBtn svg {
+    transition: transform 0.2s;
+}
+
+.switchBtn:hover svg {
+    transform: translateX(3px);
+}
+
+/* Loading spinner */
+.spinner {
+    width: 20px;
+    height: 20px;
+    border: 2.5px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Footer */
+.footer {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+    text-align: center;
+    font-size: 12.5px;
+    color: #64748b;
+}
+
+.footer p {
+    margin: 4px 0;
+}
+
+@media (max-width: 420px) {
+    .row {
+        flex-direction: column;
+        gap: 14px;
+    }
+}
+
+/* Short / shrunk windows: tighten spacing so more fits before scrolling kicks in */
+@media (max-height: 760px) {
+    .formPanel {
+        padding: 16px 40px;
+    }
+
+    .brand {
+        margin-bottom: 12px;
+    }
+
+    .badge {
+        width: 46px;
+        height: 46px;
+    }
+
+    .brandName {
+        font-size: 20px;
+    }
+
+    .header {
+        margin-bottom: 12px;
+    }
+
+    .title {
+        font-size: 20px;
+    }
+
+    .form {
+        gap: 10px;
+    }
+
+    .row {
+        gap: 10px;
+    }
+
+    .footer {
+        margin-top: 8px;
+        padding-top: 8px;
+    }
+}
