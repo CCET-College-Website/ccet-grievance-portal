@@ -3,6 +3,10 @@ import styles from './Login.module.css';
 import bgImage from '../../assets/CCET-BG.png';
 import ccetLogo from '../../assets/CCET-LOGO.png';
 
+// Hosted grievance API
+const API_BASE_URL = 'https://ccet.ac.in/api-grievance/auth.php';
+const OTP_API_URL = 'https://ccet.ac.in/api-grievance/otp.php';
+
 const YEARS = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
 const BRANCHES = [
     'Computer Science',
@@ -24,10 +28,17 @@ export default function Login() {
     // fixes it so the container always matches whichever form is showing.
     const loginCardRef = useRef(null);
     const registerCardRef = useRef(null);
+    const otpCardRef = useRef(null);
     const [switcherHeight, setSwitcherHeight] = useState(null);
 
+    const getActiveCardEl = (m) => {
+        if (m === 'login') return loginCardRef.current;
+        if (m === 'register') return registerCardRef.current;
+        return otpCardRef.current;
+    };
+
     useLayoutEffect(() => {
-        const activeEl = mode === 'login' ? loginCardRef.current : registerCardRef.current;
+        const activeEl = getActiveCardEl(mode);
         if (activeEl) {
             setSwitcherHeight(activeEl.offsetHeight);
         }
@@ -35,7 +46,7 @@ export default function Login() {
 
     useEffect(() => {
         const handleResize = () => {
-            const activeEl = mode === 'login' ? loginCardRef.current : registerCardRef.current;
+            const activeEl = getActiveCardEl(mode);
             if (activeEl) {
                 setSwitcherHeight(activeEl.offsetHeight);
             }
@@ -48,6 +59,7 @@ export default function Login() {
     const [errors, setErrors] = useState({});
     const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [serverError, setServerError] = useState('');
 
     const [regData, setRegData] = useState({
         name: '',
@@ -61,9 +73,39 @@ export default function Login() {
     const [regErrors, setRegErrors] = useState({});
     const [isRegLoading, setIsRegLoading] = useState(false);
     const [showRegPassword, setShowRegPassword] = useState(false);
+    const [regServerError, setRegServerError] = useState('');
+    const [regSuccess, setRegSuccess] = useState('');
+
+    // Email OTP verification (required before registration)
+    const [otpSent, setOtpSent] = useState(false);
+    const [otpValue, setOtpValue] = useState('');
+    const [otpVerified, setOtpVerified] = useState(false);
+    const [otpSending, setOtpSending] = useState(false);
+    const [otpVerifying, setOtpVerifying] = useState(false);
+    const [otpError, setOtpError] = useState('');
+    const [resendCooldown, setResendCooldown] = useState(0);
+
+    useEffect(() => {
+        if (resendCooldown <= 0) return;
+        const t = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+        return () => clearTimeout(t);
+    }, [resendCooldown]);
 
     const goToRegister = () => setMode('register');
-    const goToLogin = () => setMode('login');
+    const goToLogin = () => {
+        setMode('login');
+        setOtpSent(false);
+        setOtpVerified(false);
+        setOtpValue('');
+        setOtpError('');
+        setResendCooldown(0);
+    };
+    const goBackToRegisterForm = () => {
+        setMode('register');
+        setOtpSent(false);
+        setOtpValue('');
+        setOtpError('');
+    };
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -71,6 +113,7 @@ export default function Login() {
         if (errors[name]) {
             setErrors((prev) => ({ ...prev, [name]: '' }));
         }
+        if (serverError) setServerError('');
     };
 
     const handleFocus = (e) => {
@@ -103,13 +146,34 @@ export default function Login() {
             return;
         }
 
+        setServerError('');
         setIsLoading(true);
-        // TODO: Replace with actual backend call later
-        setTimeout(() => {
+
+        try {
+            const res = await fetch(`${API_BASE_URL}?action=login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: formData.email.trim(),
+                    password: formData.password,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!data.success) {
+                setServerError(data.error || 'Invalid email or password');
+                return;
+            }
+
+            // Successful login — user record (no password) comes back in data.user
+            sessionStorage.setItem('ccet_user', JSON.stringify(data.user));
+            window.location.href = '/dashboard'; // adjust to your actual post-login route
+        } catch (err) {
+            setServerError('Could not reach the server. Please try again.');
+        } finally {
             setIsLoading(false);
-            console.log('Login payload:', formData);
-            alert('Frontend ready! Connect backend API here.');
-        }, 1200);
+        }
     };
 
     const handleRegChange = (e) => {
@@ -117,6 +181,115 @@ export default function Login() {
         setRegData((prev) => ({ ...prev, [name]: value }));
         if (regErrors[name]) {
             setRegErrors((prev) => ({ ...prev, [name]: '' }));
+        }
+        if (regServerError) setRegServerError('');
+        if (regSuccess) setRegSuccess('');
+
+        // Changing the email after verifying it invalidates that verification
+        if (name === 'email' && (otpSent || otpVerified)) {
+            setOtpSent(false);
+            setOtpVerified(false);
+            setOtpValue('');
+            setOtpError('');
+            setResendCooldown(0);
+        }
+    };
+
+    const handleOtpChange = (e) => {
+        const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+        setOtpValue(val);
+        if (otpError) setOtpError('');
+    };
+
+    // Used by the "Resend OTP" button on the OTP slide — the email was
+    // already validated on the registration form before we ever get here.
+    const handleSendOtp = async () => {
+        setOtpError('');
+        setOtpSending(true);
+        try {
+            const res = await fetch(`${OTP_API_URL}?action=send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: regData.email.trim() }),
+            });
+            const data = await res.json();
+
+            if (!data.success) {
+                setOtpError(data.error || 'Could not send OTP');
+                return;
+            }
+
+            setOtpSent(true);
+            setOtpValue('');
+            setResendCooldown(60);
+        } catch (err) {
+            setOtpError('Could not reach the server. Please try again.');
+        } finally {
+            setOtpSending(false);
+        }
+    };
+
+    // Runs on the OTP slide: verifies the code, then immediately completes
+    // registration with the details already collected on the previous slide.
+    const handleVerifyAndRegister = async (e) => {
+        e.preventDefault();
+        if (otpValue.length !== 6) return;
+
+        setOtpError('');
+        setOtpVerifying(true);
+        try {
+            const verifyRes = await fetch(`${OTP_API_URL}?action=verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: regData.email.trim(), otp: otpValue }),
+            });
+            const verifyData = await verifyRes.json();
+
+            if (!verifyData.success) {
+                setOtpError(verifyData.error || 'Invalid or expired OTP');
+                return;
+            }
+
+            setOtpVerified(true);
+
+            const res = await fetch(`${API_BASE_URL}?action=register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: regData.name.trim(),
+                    rollNumber: regData.rollNumber.trim(),
+                    year: regData.year,
+                    branch: regData.branch,
+                    email: regData.email.trim(),
+                    phone: regData.phone.trim(),
+                    password: regData.password,
+                }),
+            });
+            const data = await res.json();
+
+            if (!data.success) {
+                setOtpError(data.error || 'Registration failed. Please try again.');
+                return;
+            }
+
+            setRegSuccess('Registered successfully! You can now sign in.');
+            setRegData({
+                name: '',
+                rollNumber: '',
+                year: '',
+                branch: '',
+                email: '',
+                phone: '',
+                password: '',
+            });
+            setOtpSent(false);
+            setOtpVerified(false);
+            setOtpValue('');
+            setTimeout(goToLogin, 1200);
+        } catch (err) {
+            setOtpError('Could not reach the server. Please try again.');
+        } finally {
+            setOtpVerifying(false);
         }
     };
 
@@ -151,7 +324,9 @@ export default function Login() {
         return errs;
     };
 
-    const handleRegSubmit = (e) => {
+    // Runs on the registration form: validates the details, fires off the
+    // OTP email, then slides across to the dedicated OTP verification card.
+    const handleRegSubmit = async (e) => {
         e.preventDefault();
         const validationErrors = validateReg();
         if (Object.keys(validationErrors).length > 0) {
@@ -159,13 +334,33 @@ export default function Login() {
             return;
         }
 
+        setRegServerError('');
+        setRegSuccess('');
         setIsRegLoading(true);
-        // TODO: Replace with actual backend call later
-        setTimeout(() => {
+
+        try {
+            const res = await fetch(`${OTP_API_URL}?action=send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: regData.email.trim() }),
+            });
+            const data = await res.json();
+
+            if (!data.success) {
+                setRegServerError(data.error || 'Could not send OTP. Please try again.');
+                return;
+            }
+
+            setOtpSent(true);
+            setOtpValue('');
+            setOtpError('');
+            setResendCooldown(60);
+            setMode('otp');
+        } catch (err) {
+            setRegServerError('Could not reach the server. Please try again.');
+        } finally {
             setIsRegLoading(false);
-            console.log('Register payload:', regData);
-            alert('Frontend ready! Connect backend API here.');
-        }, 1200);
+        }
     };
 
     return (
@@ -181,7 +376,7 @@ export default function Login() {
                     style={switcherHeight ? { height: `${switcherHeight}px` } : undefined}
                 >
                     <div
-                        className={`${styles.authTrack} ${mode === 'register' ? styles.toRegister : ''}`}
+                        className={`${styles.authTrack} ${mode === 'register' ? styles.toRegister : ''} ${mode === 'otp' ? styles.toOtp : ''}`}
                     >
                         {/* ===================== LOGIN CARD ===================== */}
                         <div className={styles.loginCard} ref={loginCardRef}>
@@ -271,6 +466,12 @@ export default function Login() {
                                         Forgot password?
                                     </a>
                                 </div>
+
+                                {serverError && (
+                                    <p style={{ color: '#ef4444', fontSize: '13px', margin: 0 }}>
+                                        {serverError}
+                                    </p>
+                                )}
 
                                 <button type="submit" className={styles.submitBtn} disabled={isLoading}>
                                     {isLoading ? <span className={styles.spinner} /> : 'Sign In'}
@@ -481,6 +682,17 @@ export default function Login() {
                                     </div>
                                 </div>
 
+                                {regServerError && (
+                                    <p style={{ color: '#ef4444', fontSize: '13px', margin: 0 }}>
+                                        {regServerError}
+                                    </p>
+                                )}
+                                {regSuccess && (
+                                    <p style={{ color: '#16a34a', fontSize: '13px', margin: 0 }}>
+                                        {regSuccess}
+                                    </p>
+                                )}
+
                                 <button type="submit" className={styles.submitBtn} disabled={isRegLoading}>
                                     {isRegLoading ? <span className={styles.spinner} /> : 'Register'}
                                 </button>
@@ -492,6 +704,90 @@ export default function Login() {
                                     </svg>
                                     Already registered? Login
                                 </button>
+                            </form>
+                        </div>
+
+                        {/* ===================== OTP VERIFICATION CARD ===================== */}
+                        <div className={styles.otpCard} ref={otpCardRef}>
+                            <div className={styles.brand}>
+                                <img src={ccetLogo} alt="CCET Logo" className={styles.badge} />
+                                <span className={styles.brandName}>
+                                    Chandigarh College of Engineering and Technology
+                                </span>
+                            </div>
+
+                            <div className={styles.header}>
+                                <h1 className={styles.title}>Verify Your Email</h1>
+                                <p className={styles.subtitle}>Enter the code we just sent you to finish creating your account</p>
+                            </div>
+
+                            <form onSubmit={handleVerifyAndRegister} className={styles.form} noValidate>
+                                <div className={styles.otpEmailBadge}>
+                                    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                        <rect x="3" y="5" width="18" height="14" rx="2" />
+                                        <path d="M3 7l9 6 9-6" />
+                                    </svg>
+                                    <span>OTP sent to {regData.email}</span>
+                                </div>
+
+                                <div className={styles.inputGroup}>
+                                    <label htmlFor="otp" className={styles.label}>
+                                        6-Digit Verification Code
+                                    </label>
+                                    <div className={styles.fieldWrap}>
+                                        <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            id="otp"
+                                            name="otp"
+                                            value={otpValue}
+                                            onChange={handleOtpChange}
+                                            placeholder="Enter OTP"
+                                            maxLength={6}
+                                            autoComplete="one-time-code"
+                                            className={styles.input}
+                                        />
+                                    </div>
+                                </div>
+
+                                {otpError && (
+                                    <p style={{ color: '#ef4444', fontSize: '13px', margin: 0 }}>
+                                        {otpError}
+                                    </p>
+                                )}
+                                {regSuccess && (
+                                    <p style={{ color: '#16a34a', fontSize: '13px', margin: 0 }}>
+                                        {regSuccess}
+                                    </p>
+                                )}
+
+                                <button type="submit" className={styles.submitBtn} disabled={otpVerifying || otpValue.length !== 6}>
+                                    {otpVerifying ? <span className={styles.spinner} /> : 'Verify & Complete Registration'}
+                                </button>
+
+                                <div className={styles.row}>
+                                    <button
+                                        type="button"
+                                        className={styles.switchBtn}
+                                        onClick={handleSendOtp}
+                                        disabled={otpSending || resendCooldown > 0}
+                                    >
+                                        {otpSending ? (
+                                            <span className={styles.spinner} />
+                                        ) : resendCooldown > 0 ? (
+                                            `Resend in ${resendCooldown}s`
+                                        ) : (
+                                            'Resend OTP'
+                                        )}
+                                    </button>
+                                    <button type="button" className={styles.switchBtn} onClick={goBackToRegisterForm}>
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M19 12H5" />
+                                            <path d="M11 6l-6 6 6 6" />
+                                        </svg>
+                                        Back
+                                    </button>
+                                </div>
                             </form>
                         </div>
                     </div>
