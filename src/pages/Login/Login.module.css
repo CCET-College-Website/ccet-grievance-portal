@@ -96,25 +96,30 @@
 
 .authTrack {
     display: flex;
-    width: 300%;
+    width: 400%;
     transition: transform 0.5s cubic-bezier(0.65, 0, 0.35, 1);
     align-items: flex-start;
 }
 
 .authTrack.toRegister {
-    transform: translateX(-33.3334%);
+    transform: translateX(-25%);
 }
 
 .authTrack.toOtp {
-    transform: translateX(-66.6668%);
+    transform: translateX(-50%);
+}
+
+.authTrack.toForgot {
+    transform: translateX(-75%);
 }
 
 .loginCard,
 .registerCard,
-.otpCard {
-    flex: 0 0 33.3334%;
-    max-width: 33.3334%;
-    width: 33.3334%;
+.otpCard,
+.forgotCard {
+    flex: 0 0 25%;
+    max-width: 25%;
+    width: 25%;
     box-sizing: border-box;
     text-align: left;
     padding: 0 2px;
