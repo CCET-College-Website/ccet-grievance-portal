@@ -6,6 +6,7 @@ import ccetLogo from '../../assets/CCET-LOGO.png';
 // Hosted grievance API
 const API_BASE_URL = 'https://ccet.ac.in/api-grievance/auth.php';
 const OTP_API_URL = 'https://ccet.ac.in/api-grievance/otp.php';
+const PASSWORD_RESET_API_URL = 'https://ccet.ac.in/api-grievance/password-reset.php';
 
 const YEARS = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
 const BRANCHES = [
@@ -29,12 +30,14 @@ export default function Login() {
     const loginCardRef = useRef(null);
     const registerCardRef = useRef(null);
     const otpCardRef = useRef(null);
+    const forgotCardRef = useRef(null);
     const [switcherHeight, setSwitcherHeight] = useState(null);
 
     const getActiveCardEl = (m) => {
         if (m === 'login') return loginCardRef.current;
         if (m === 'register') return registerCardRef.current;
-        return otpCardRef.current;
+        if (m === 'otp') return otpCardRef.current;
+        return forgotCardRef.current;
     };
 
     useLayoutEffect(() => {
@@ -53,6 +56,26 @@ export default function Login() {
         };
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
+    }, [mode]);
+
+    // The effect above only re-measures when `mode` changes, but the active
+    // card's own content can grow or shrink without a mode switch — e.g. an
+    // OTP/validation error message appearing adds a line of text. Without
+    // re-measuring here, the switcher stays locked at its old (shorter)
+    // height and clips the bottom of the card (overflow: hidden). A
+    // ResizeObserver on the active card keeps the height in sync with
+    // whatever it actually renders, whatever caused the change.
+    useEffect(() => {
+        const activeEl = getActiveCardEl(mode);
+        if (!activeEl || typeof ResizeObserver === 'undefined') return;
+
+        const observer = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                setSwitcherHeight(entry.target.offsetHeight);
+            }
+        });
+        observer.observe(activeEl);
+        return () => observer.disconnect();
     }, [mode]);
 
     const [formData, setFormData] = useState({ email: '', password: '' });
@@ -91,6 +114,130 @@ export default function Login() {
         return () => clearTimeout(t);
     }, [resendCooldown]);
 
+    // Forgot-password flow: same card, two internal steps — 'email' to
+    // request a code, 'code' to enter it alongside the new password.
+    const [forgotStep, setForgotStep] = useState('email');
+    const [forgotEmail, setForgotEmail] = useState('');
+    const [forgotOtpValue, setForgotOtpValue] = useState('');
+    const [forgotNewPassword, setForgotNewPassword] = useState('');
+    const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+    const [showForgotPassword, setShowForgotPassword] = useState(false);
+    const [forgotSending, setForgotSending] = useState(false);
+    const [forgotVerifying, setForgotVerifying] = useState(false);
+    const [forgotError, setForgotError] = useState('');
+    const [forgotSuccess, setForgotSuccess] = useState('');
+    const [forgotResendCooldown, setForgotResendCooldown] = useState(0);
+
+    useEffect(() => {
+        if (forgotResendCooldown <= 0) return;
+        const t = setTimeout(() => setForgotResendCooldown((c) => c - 1), 1000);
+        return () => clearTimeout(t);
+    }, [forgotResendCooldown]);
+
+    const resetForgotState = () => {
+        setForgotStep('email');
+        setForgotEmail('');
+        setForgotOtpValue('');
+        setForgotNewPassword('');
+        setForgotConfirmPassword('');
+        setForgotError('');
+        setForgotSuccess('');
+        setForgotResendCooldown(0);
+    };
+
+    const goToForgot = () => {
+        resetForgotState();
+        setMode('forgot');
+    };
+
+    const goBackToLoginFromForgot = () => {
+        resetForgotState();
+        setMode('login');
+    };
+
+    // Requests (or re-requests) a reset code for the email currently
+    // typed in. The API always returns a generic success message so
+    // this can't be used to test which emails are registered.
+    const handleForgotRequestCode = async (e) => {
+        if (e) e.preventDefault();
+        if (!forgotEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail)) {
+            setForgotError('Please enter a valid email');
+            return;
+        }
+
+        setForgotError('');
+        setForgotSending(true);
+        try {
+            const res = await fetch(`${PASSWORD_RESET_API_URL}?action=request`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: forgotEmail.trim() }),
+            });
+            const data = await res.json();
+
+            if (!data.success) {
+                setForgotError(data.error || 'Could not send reset code');
+                return;
+            }
+
+            setForgotStep('code');
+            setForgotOtpValue('');
+            setForgotResendCooldown(60);
+        } catch (err) {
+            setForgotError('Could not reach the server. Please try again.');
+        } finally {
+            setForgotSending(false);
+        }
+    };
+
+    const handleForgotOtpChange = (e) => {
+        const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+        setForgotOtpValue(val);
+        if (forgotError) setForgotError('');
+    };
+
+    // Verifies the code and sets the new password in a single call.
+    const handleForgotReset = async (e) => {
+        e.preventDefault();
+        if (forgotOtpValue.length !== 6) return;
+
+        if (forgotNewPassword.length < 6) {
+            setForgotError('Password must be at least 6 characters');
+            return;
+        }
+        if (forgotNewPassword !== forgotConfirmPassword) {
+            setForgotError('Passwords do not match');
+            return;
+        }
+
+        setForgotError('');
+        setForgotVerifying(true);
+        try {
+            const res = await fetch(`${PASSWORD_RESET_API_URL}?action=reset`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: forgotEmail.trim(),
+                    otp: forgotOtpValue,
+                    newPassword: forgotNewPassword,
+                }),
+            });
+            const data = await res.json();
+
+            if (!data.success) {
+                setForgotError(data.error || 'Could not reset password. Please try again.');
+                return;
+            }
+
+            setForgotSuccess(data.message || 'Password reset successfully. You can now sign in.');
+            setTimeout(goBackToLoginFromForgot, 1500);
+        } catch (err) {
+            setForgotError('Could not reach the server. Please try again.');
+        } finally {
+            setForgotVerifying(false);
+        }
+    };
+
     const goToRegister = () => setMode('register');
     const goToLogin = () => {
         setMode('login');
@@ -99,6 +246,7 @@ export default function Login() {
         setOtpValue('');
         setOtpError('');
         setResendCooldown(0);
+        resetForgotState();
     };
     const goBackToRegisterForm = () => {
         setMode('register');
@@ -376,7 +524,7 @@ export default function Login() {
                     style={switcherHeight ? { height: `${switcherHeight}px` } : undefined}
                 >
                     <div
-                        className={`${styles.authTrack} ${mode === 'register' ? styles.toRegister : ''} ${mode === 'otp' ? styles.toOtp : ''}`}
+                        className={`${styles.authTrack} ${mode === 'register' ? styles.toRegister : ''} ${mode === 'otp' ? styles.toOtp : ''} ${mode === 'forgot' ? styles.toForgot : ''}`}
                     >
                         {/* ===================== LOGIN CARD ===================== */}
                         <div className={styles.loginCard} ref={loginCardRef}>
@@ -462,7 +610,11 @@ export default function Login() {
                                         <input type="checkbox" className={styles.checkbox} />
                                         <span>Remember me</span>
                                     </label>
-                                    <a href="#" className={styles.link}>
+                                    <a
+                                        href="#"
+                                        className={styles.link}
+                                        onClick={(e) => { e.preventDefault(); goToForgot(); }}
+                                    >
                                         Forgot password?
                                     </a>
                                 </div>
@@ -789,6 +941,220 @@ export default function Login() {
                                     </button>
                                 </div>
                             </form>
+                        </div>
+
+                        {/* ===================== FORGOT PASSWORD CARD ===================== */}
+                        <div className={styles.forgotCard} ref={forgotCardRef}>
+                            <div className={styles.brand}>
+                                <img src={ccetLogo} alt="CCET Logo" className={styles.badge} />
+                                <span className={styles.brandName}>
+                                    Chandigarh College of Engineering and Technology
+                                </span>
+                            </div>
+
+                            {forgotStep === 'email' ? (
+                                <>
+                                    <div className={styles.header}>
+                                        <h1 className={styles.title}>Reset Password</h1>
+                                        <p className={styles.subtitle}>
+                                            Enter your account email and we'll send you a verification code
+                                        </p>
+                                    </div>
+
+                                    <form onSubmit={handleForgotRequestCode} className={styles.form} noValidate>
+                                        <div className={styles.inputGroup}>
+                                            <label htmlFor="forgotEmail" className={styles.label}>
+                                                Email Address
+                                            </label>
+                                            <div className={styles.fieldWrap}>
+                                                <input
+                                                    type="email"
+                                                    id="forgotEmail"
+                                                    name="forgotEmail"
+                                                    value={forgotEmail}
+                                                    onChange={(e) => {
+                                                        setForgotEmail(e.target.value);
+                                                        if (forgotError) setForgotError('');
+                                                    }}
+                                                    placeholder="you@ccet.ac.in"
+                                                    autoComplete="email"
+                                                    className={`${styles.input} ${forgotError ? styles.inputError : ''}`}
+                                                />
+                                                <span className={styles.fieldIcon}>
+                                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                                        <rect x="3" y="5" width="18" height="14" rx="2" />
+                                                        <path d="M3 7l9 6 9-6" />
+                                                    </svg>
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {forgotError && (
+                                            <p style={{ color: '#ef4444', fontSize: '13px', margin: 0 }}>
+                                                {forgotError}
+                                            </p>
+                                        )}
+
+                                        <button type="submit" className={styles.submitBtn} disabled={forgotSending}>
+                                            {forgotSending ? <span className={styles.spinner} /> : 'Send Reset Code'}
+                                        </button>
+
+                                        <button type="button" className={styles.switchBtn} onClick={goBackToLoginFromForgot}>
+                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <path d="M19 12H5" />
+                                                <path d="M11 6l-6 6 6 6" />
+                                            </svg>
+                                            Back to Login
+                                        </button>
+                                    </form>
+                                </>
+                            ) : (
+                                <>
+                                    <div className={styles.header}>
+                                        <h1 className={styles.title}>Enter Reset Code</h1>
+                                        <p className={styles.subtitle}>Enter the code we sent you and choose a new password</p>
+                                    </div>
+
+                                    <form onSubmit={handleForgotReset} className={styles.form} noValidate>
+                                        <div className={styles.otpEmailBadge}>
+                                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                                <rect x="3" y="5" width="18" height="14" rx="2" />
+                                                <path d="M3 7l9 6 9-6" />
+                                            </svg>
+                                            <span>Code sent to {forgotEmail}</span>
+                                        </div>
+
+                                        <div className={styles.inputGroup}>
+                                            <label htmlFor="forgotOtp" className={styles.label}>
+                                                6-Digit Reset Code
+                                            </label>
+                                            <div className={styles.fieldWrap}>
+                                                <input
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    id="forgotOtp"
+                                                    name="forgotOtp"
+                                                    value={forgotOtpValue}
+                                                    onChange={handleForgotOtpChange}
+                                                    placeholder="Enter code"
+                                                    maxLength={6}
+                                                    autoComplete="one-time-code"
+                                                    className={styles.input}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className={styles.inputGroup}>
+                                            <label htmlFor="forgotNewPassword" className={styles.label}>
+                                                New Password
+                                            </label>
+                                            <div className={styles.fieldWrap}>
+                                                <input
+                                                    type={showForgotPassword ? 'text' : 'password'}
+                                                    id="forgotNewPassword"
+                                                    name="forgotNewPassword"
+                                                    value={forgotNewPassword}
+                                                    onChange={(e) => {
+                                                        setForgotNewPassword(e.target.value);
+                                                        if (forgotError) setForgotError('');
+                                                    }}
+                                                    placeholder="••••••••"
+                                                    autoComplete="new-password"
+                                                    className={styles.input}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    className={styles.eyeBtn}
+                                                    onClick={() => setShowForgotPassword((v) => !v)}
+                                                    aria-label={showForgotPassword ? 'Hide password' : 'Show password'}
+                                                    tabIndex={-1}
+                                                >
+                                                    {showForgotPassword ? (
+                                                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                                            <path d="M3 3l18 18" />
+                                                            <path d="M10.6 10.6a2 2 0 002.8 2.8" />
+                                                            <path d="M9.5 5.2A10.4 10.4 0 0112 5c5 0 9 4 10 7-.4 1.1-1.2 2.4-2.4 3.6M6.4 6.4C4.5 7.7 3 9.6 2 12c1 3 5 7 10 7 1.2 0 2.3-.2 3.4-.6" />
+                                                        </svg>
+                                                    ) : (
+                                                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                                            <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" />
+                                                            <circle cx="12" cy="12" r="3" />
+                                                        </svg>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className={styles.inputGroup}>
+                                            <label htmlFor="forgotConfirmPassword" className={styles.label}>
+                                                Confirm New Password
+                                            </label>
+                                            <div className={styles.fieldWrap}>
+                                                <input
+                                                    type={showForgotPassword ? 'text' : 'password'}
+                                                    id="forgotConfirmPassword"
+                                                    name="forgotConfirmPassword"
+                                                    value={forgotConfirmPassword}
+                                                    onChange={(e) => {
+                                                        setForgotConfirmPassword(e.target.value);
+                                                        if (forgotError) setForgotError('');
+                                                    }}
+                                                    placeholder="••••••••"
+                                                    autoComplete="new-password"
+                                                    className={styles.input}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {forgotError && (
+                                            <p style={{ color: '#ef4444', fontSize: '13px', margin: 0 }}>
+                                                {forgotError}
+                                            </p>
+                                        )}
+                                        {forgotSuccess && (
+                                            <p style={{ color: '#16a34a', fontSize: '13px', margin: 0 }}>
+                                                {forgotSuccess}
+                                            </p>
+                                        )}
+
+                                        <button
+                                            type="submit"
+                                            className={styles.submitBtn}
+                                            disabled={forgotVerifying || forgotOtpValue.length !== 6}
+                                        >
+                                            {forgotVerifying ? <span className={styles.spinner} /> : 'Reset Password'}
+                                        </button>
+
+                                        <div className={styles.row}>
+                                            <button
+                                                type="button"
+                                                className={styles.switchBtn}
+                                                onClick={handleForgotRequestCode}
+                                                disabled={forgotSending || forgotResendCooldown > 0}
+                                            >
+                                                {forgotSending ? (
+                                                    <span className={styles.spinner} />
+                                                ) : forgotResendCooldown > 0 ? (
+                                                    `Resend in ${forgotResendCooldown}s`
+                                                ) : (
+                                                    'Resend Code'
+                                                )}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={styles.switchBtn}
+                                                onClick={() => { setForgotStep('email'); setForgotError(''); }}
+                                            >
+                                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                                                    <path d="M19 12H5" />
+                                                    <path d="M11 6l-6 6 6 6" />
+                                                </svg>
+                                                Back
+                                            </button>
+                                        </div>
+                                    </form>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
